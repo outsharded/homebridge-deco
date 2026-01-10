@@ -1,17 +1,88 @@
 {
-  "pluginAlias": "ExampleHomebridgePlugin",
+  "pluginAlias": "TPLinkDeco",
   "pluginType": "platform",
   "singular": true,
   "strictValidation": false,
   "schema": {
     "type": "object",
-    "required": ["name"],
+    "required": ["name", "username", "password"],
     "additionalProperties": false,
     "properties": {
       "name": {
         "title": "Name",
         "type": "string",
-        "default": "Example Dynamic Platform"
+        "default": "TP-Link Deco"
+      },
+      "username": {
+        "title": "TP-Link Account Email",
+        "type": "string",
+        "required": true,
+        "description": "Your TP-Link cloud account email address"
+      },
+      "password": {
+        "title": "TP-Link Account Password",
+        "type": "string",
+        "required": true,
+        "description": "Your TP-Link cloud account password"
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (seconds)",
+        "type": "integer",
+        "default": 30,
+        "minimum": 10,
+        "maximum": 300,
+        "description": "How often to check device status (10-300 seconds)"
+      },
+      "exposeAsRouter": {
+        "title": "Expose as Router (Recommended)",
+        "type": "boolean",
+        "default": true,
+        "description": "Expose Deco as a native HomeKit Router accessory"
+      },
+      "exposeNetworkSensor": {
+        "title": "Expose Network Status Sensor",
+        "type": "boolean",
+        "default": false,
+        "description": "Add a contact sensor for internet connectivity (alternative to router)"
+      },
+      "exposeGuestNetwork": {
+        "title": "Expose Guest Network Control",
+        "type": "boolean",
+        "default": false,
+        "description": "Add a switch to control guest network on/off"
+      },
+      "exposeDecoUnits": {
+        "title": "Expose Individual Deco Units",
+        "type": "boolean",
+        "default": false,
+        "description": "Add contact sensors for each Deco mesh unit status"
+      },
+      "exposeDeviceTrackers": {
+        "title": "Expose Connected Devices as Occupancy Sensors",
+        "type": "boolean",
+        "default": false,
+        "description": "Create occupancy sensors for tracking specific devices"
+      },
+      "trackedDevices": {
+        "title": "Tracked Device MAC Addresses",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "title": "Device Name",
+              "type": "string"
+            },
+            "mac": {
+              "title": "MAC Address",
+              "type": "string",
+              "pattern": "^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
+            }
+          }
+        },
+        "condition": {
+          "functionBody": "return model.exposeDeviceTrackers === true;"
+        }
       }
     }
   }

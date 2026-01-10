@@ -12,3 +12,17 @@ declare module 'homebridge-lib/EveHomeKitTypes' {
 
 declare module 'homebridge-lib' {
 }
+
+// Deco API types
+interface DecoDevice {
+  deviceId: string;
+  deviceName: string;
+  deviceModel: string;
+  deviceType: string;
+  role: string;
+  mac: string;
+  ip: string;
+  status: number;
+  ledOn: boolean;
+  signalLevel?: number;
+}

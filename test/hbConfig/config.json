@@ -1,13 +1,13 @@
 {
   "bridge": {
-    "name": "PluginTemplate",
+    "name": "TPLinkDeco",
     "username": "AA:BB:CC:DD:EE:FF",
     "port": 51826,
     "pin": "031-45-154"
   },
-  "description": "HomeBridge HTTP Status Control",
+  "description": "HomeBridge TP-Link Deco Control",
   "plugins": [
-    "homebridge-plugin-name",
+    "homebridge-deco",
     "homebridge-config-ui-x"
   ],
   "platforms": [
@@ -23,8 +23,17 @@
       "debug": false
     },
     {
-      "name": "homebridge-plugin-name",
-      "platform": "ExampleHomebridgePlugin"
+      "name": "TP-Link Deco",
+      "platform": "TPLinkDeco",
+      "username": "your-tplink-email@example.com",
+      "password": "your-tplink-password",
+      "pollingInterval": 30,
+      "exposeAsRouter": true,
+      "exposeNetworkSensor": false,
+      "exposeGuestNetwork": false,
+      "exposeDecoUnits": false,
+      "exposeDeviceTrackers": false,
+      "trackedDevices": []
     }
   ],
   "accessories": []

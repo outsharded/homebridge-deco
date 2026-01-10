@@ -1,22 +1,27 @@
 {
-  "name": "homebridge-plugin-name",
-  "displayName": "Plugin Name",
+  "name": "homebridge-deco",
+  "displayName": "TP-Link Deco",
   "type": "module",
   "version": "1.0.0",
   "private": true,
-  "description": "A short description about what your plugin does.",
-  "author": "Your Name",
+  "description": "Homebridge plugin for TP-Link Deco mesh network system with support for network monitoring, device tracking, and network controls.",
+  "author": "Fabian Oley",
   "license": "Apache-2.0",
-  "homepage": "https://github.com/USERNAME/GITHUB_PROJECT_NAME#readme",
+  "homepage": "https://github.com/fabianoley/homebridge-deco#readme",
   "repository": {
     "type": "git",
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
+    "url": "https://github.com/fabianoley/homebridge-deco.git"
   },
   "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
+    "url": "https://github.com/fabianoley/homebridge-deco/issues"
   },
   "keywords": [
-    "homebridge-plugin"
+    "homebridge-plugin",
+    "tp-link",
+    "deco",
+    "mesh",
+    "network",
+    "router"
   ],
   "main": "dist/index.js",
   "engines": {
