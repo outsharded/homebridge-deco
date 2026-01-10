@@ -2,7 +2,7 @@
   "name": "homebridge-deco",
   "displayName": "TP-Link Deco",
   "type": "module",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Homebridge plugin for TP-Link Deco mesh network system with support for network monitoring, device tracking, and network controls.",
   "author": "Fabian Oley",
   "license": "Apache-2.0",
