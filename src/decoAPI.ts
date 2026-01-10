@@ -348,8 +348,19 @@ export class DecoAPI {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return data;
+      const text = await response.text();
+      // Try to parse as JSON, but handle HTML error pages gracefully
+      try {
+        const data = JSON.parse(text);
+        return data;
+      } catch (parseError) {
+        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+          this.log.error('API returned HTML instead of JSON. This usually means the endpoint is down, credentials are wrong, or the API has changed.');
+        } else {
+          this.log.error('Failed to parse API response as JSON:', text);
+        }
+        throw new Error('Invalid JSON response from TP-Link API');
+      }
     } catch (error) {
       this.log.error('API request failed:', error);
       throw error;
