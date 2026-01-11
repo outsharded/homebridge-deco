@@ -1,5 +1,6 @@
 import type { Logging } from 'homebridge';
-import { randomUUID } from 'crypto';
+import https from 'https';
+import type { IncomingMessage } from 'http';
 
 interface DecoConfig {
   username: string;
@@ -41,9 +42,9 @@ export class DecoAPI {
   private readonly log: Logging;
   private readonly username: string;
   private readonly password: string;
-  private token: string | null = null;
-  private readonly baseUrl = 'https://use1-wap.tplinkdeco.com';
-  private termid: string;
+  private routerUrl: string = 'https://192.168.68.1';
+  private stok: string = '';
+  private sysauth: string = '';
   private lastAuthTime: number = 0;
   private readonly authValidityMs = 3600000; // 1 hour
 
@@ -51,42 +52,37 @@ export class DecoAPI {
     this.log = config.log;
     this.username = config.username;
     this.password = config.password;
-    this.termid = randomUUID();
   }
 
   /**
-   * Authenticate with TP-Link cloud service
+   * Authenticate with local Deco router using HTTPS API
    */
   async authenticate(): Promise<boolean> {
     try {
       // Check if we have a valid token already
-      if (this.token && (Date.now() - this.lastAuthTime) < this.authValidityMs) {
+      if (this.stok && (Date.now() - this.lastAuthTime) < this.authValidityMs) {
         return true;
       }
 
-      this.log.debug('Authenticating with TP-Link cloud...');
+      this.log.debug('Authenticating with local Deco router at:', this.routerUrl);
 
-      const params = {
-        method: 'login',
-        params: {
-          appType: 'Deco',
-          cloudUserName: this.username,
-          cloudPassword: this.password,
-          terminalUUID: this.termid,
-        },
+      // Deco router only needs password for login
+      const loginData = {
+        params: { password: this.password },
+        operation: 'login',
       };
 
-      const response = await this.makeRequest('/', params, false);
+      const response = await this.makeRequest('login', JSON.stringify(loginData));
 
       if (response.error_code !== 0) {
         this.log.error('Authentication failed:', response.msg || 'Unknown error');
         return false;
       }
 
-      if (response.result && typeof response.result === 'object' && 'token' in response.result) {
-        this.token = response.result.token as string;
+      if (response.result && typeof response.result === 'object' && 'stok' in response.result) {
+        this.stok = response.result.stok as string;
         this.lastAuthTime = Date.now();
-        this.log.info('Successfully authenticated with TP-Link cloud');
+        this.log.info('Successfully authenticated with local Deco router');
         return true;
       }
 
@@ -99,115 +95,51 @@ export class DecoAPI {
   }
 
   /**
-   * Get list of Deco devices in the network
-   */
-  async getDeviceList(): Promise<DecoDevice[]> {
-    try {
-      if (!await this.ensureAuthenticated()) {
-        return [];
-      }
-
-      const params = {
-        method: 'getDeviceList',
-        params: {},
-      };
-
-      const response = await this.makeRequest('/', params);
-
-      if (response.error_code !== 0) {
-        this.log.error('Failed to get device list:', response.msg);
-        return [];
-      }
-
-      if (response.result && typeof response.result === 'object' && 'deviceList' in response.result) {
-        const devices: DecoDevice[] = (response.result.deviceList as DecoDevice[]) || [];
-        this.log.debug(`Found ${devices.length} Deco devices`);
-        return devices;
-      }
-
-      return [];
-    } catch (error) {
-      this.log.error('Error getting device list:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get network status including internet connectivity and guest network
+   * Get network status from local Deco router
    */
   async getNetworkStatus(): Promise<NetworkStatus> {
     try {
       if (!await this.ensureAuthenticated()) {
-        return {
-          internetOnline: false,
-          guestNetworkEnabled: false,
-          devices: [],
-          clients: [],
-        };
+        this.log.error('Not authenticated, cannot get network status');
+        return { internetOnline: false, guestNetworkEnabled: false, devices: [], clients: [] };
       }
 
-      const [devices, clients, guestNetwork] = await Promise.all([
-        this.getDeviceList(),
-        this.getClientList(),
-        this.getGuestNetworkStatus(),
-      ]);
+      const wanData = await this.makeRequest(
+        'admin/network?form=wan_ipv4',
+        JSON.stringify({ operation: 'read' }),
+      ) as Record<string, Record<string, unknown>>;
 
-      // Check if any device is online to determine internet status
-      const internetOnline = devices.some(d => d.status === 1);
+      const clientData = await this.makeRequest(
+        'admin/client?form=client_list',
+        JSON.stringify({ operation: 'read' }),
+      ) as Record<string, unknown>;
+
+      const internetOnline = (wanData?.wan as Record<string, unknown>)?.inet_status === 'online';
+      const clientList = (clientData?.client_list as Record<string, unknown>[]) || [];
+      const clients = clientList.map((client: Record<string, unknown>) => ({
+        mac: typeof client.mac === 'string' ? client.mac : '',
+        name: client.name ? Buffer.from(client.name as string, 'base64').toString('utf-8') : '',
+        ip: typeof client.ip === 'string' ? client.ip : '',
+        online: client.online === true,
+        downSpeed: typeof client.down_speed === 'number' ? client.down_speed : 0,
+        upSpeed: typeof client.up_speed === 'number' ? client.up_speed : 0,
+        connectedNode: client.access_host ? String(client.access_host) : '',
+      }));
 
       return {
         internetOnline,
-        guestNetworkEnabled: guestNetwork,
-        devices,
+        guestNetworkEnabled: false,
+        devices: [],
         clients,
       };
     } catch (error) {
       this.log.error('Error getting network status:', error);
-      return {
-        internetOnline: false,
-        guestNetworkEnabled: false,
-        devices: [],
-        clients: [],
-      };
+      return { internetOnline: false, guestNetworkEnabled: false, devices: [], clients: [] };
     }
   }
 
   /**
-   * Get list of connected clients
-   */
-  async getClientList(): Promise<ConnectedClient[]> {
-    try {
-      if (!await this.ensureAuthenticated()) {
-        return [];
-      }
-
-      const params = {
-        method: 'getClientList',
-        params: {},
-      };
-
-      const response = await this.makeRequest('/', params);
-
-      if (response.error_code !== 0) {
-        this.log.debug('Failed to get client list:', response.msg);
-        return [];
-      }
-
-      if (response.result && typeof response.result === 'object' && 'clientList' in response.result) {
-        const clients: ConnectedClient[] = (response.result.clientList as ConnectedClient[]) || [];
-        this.log.debug(`Found ${clients.length} connected clients`);
-        return clients;
-      }
-
-      return [];
-    } catch (error) {
-      this.log.error('Error getting client list:', error);
-      return [];
-    }
-  }
-
-  /**
-   * Get guest network status
+   * Get guest network status (placeholder for local API)
    */
   async getGuestNetworkStatus(): Promise<boolean> {
     try {
@@ -215,23 +147,18 @@ export class DecoAPI {
         return false;
       }
 
-      const params = {
-        method: 'getGuestNetwork',
-        params: {},
-      };
+      const wlanData = await this.makeRequest(
+        'admin/wireless?form=wlan',
+        JSON.stringify({ operation: 'read' }),
+      ) as Record<string, Record<string, unknown>>;
 
-      const response = await this.makeRequest('/', params);
+      // Check if guest network is enabled on 2.4G or 5G bands
+      const band2_4 = (wlanData?.band2_4 as Record<string, unknown>) || {};
+      const band5_1 = (wlanData?.band5_1 as Record<string, unknown>) || {};
+      const guest2g = (band2_4.guest as Record<string, unknown>)?.enable === true;
+      const guest5g = (band5_1.guest as Record<string, unknown>)?.enable === true;
 
-      if (response.error_code !== 0) {
-        this.log.debug('Failed to get guest network status:', response.msg);
-        return false;
-      }
-
-      if (response.result && typeof response.result === 'object' && 'enabled' in response.result) {
-        return response.result.enabled === true;
-      }
-
-      return false;
+      return guest2g || guest5g;
     } catch (error) {
       this.log.debug('Error getting guest network status:', error);
       return false;
@@ -239,7 +166,7 @@ export class DecoAPI {
   }
 
   /**
-   * Toggle guest network on/off
+   * Set guest network on/off (placeholder for local API)
    */
   async setGuestNetwork(enabled: boolean): Promise<boolean> {
     try {
@@ -248,18 +175,17 @@ export class DecoAPI {
       }
 
       const params = {
-        method: 'setGuestNetwork',
+        operation: 'write',
         params: {
-          enabled,
+          band2_4: { guest: { enable: enabled } },
+          band5_1: { guest: { enable: enabled } },
         },
       };
 
-      const response = await this.makeRequest('/', params);
-
-      if (response.error_code !== 0) {
-        this.log.error('Failed to set guest network:', response.msg);
-        return false;
-      }
+      await this.makeRequest(
+        'admin/wireless?form=wlan',
+        JSON.stringify(params),
+      );
 
       this.log.info(`Guest network ${enabled ? 'enabled' : 'disabled'}`);
       return true;
@@ -274,9 +200,9 @@ export class DecoAPI {
    */
   async isDeviceConnected(mac: string): Promise<boolean> {
     try {
-      const clients = await this.getClientList();
+      const status = await this.getNetworkStatus();
       const normalizedMac = mac.toLowerCase().replace(/[:-]/g, '');
-      return clients.some(client => {
+      return status.clients.some(client => {
         const clientMac = client.mac.toLowerCase().replace(/[:-]/g, '');
         return clientMac === normalizedMac && client.online;
       });
@@ -287,91 +213,82 @@ export class DecoAPI {
   }
 
   /**
-   * Reboot a specific Deco device
-   */
-  async rebootDevice(deviceId: string): Promise<boolean> {
-    try {
-      if (!await this.ensureAuthenticated()) {
-        return false;
-      }
-
-      const params = {
-        method: 'reboot',
-        params: {
-          deviceId,
-        },
-      };
-
-      const response = await this.makeRequest('/', params);
-
-      if (response.error_code !== 0) {
-        this.log.error('Failed to reboot device:', response.msg);
-        return false;
-      }
-
-      this.log.info(`Rebooted device ${deviceId}`);
-      return true;
-    } catch (error) {
-      this.log.error('Error rebooting device:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Make HTTP request to TP-Link API
+   * Make HTTPS request to local Deco router
    */
   private async makeRequest(
-    endpoint: string,
-    params: Record<string, unknown>,
-    requireAuth = true,
+    path: string,
+    body: string,
   ): Promise<Record<string, unknown>> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Deco/3.0 (iPhone; iOS 15.0; Scale/3.00)',
-    };
+    const url = `${this.routerUrl}/cgi-bin/luci/;stok=${this.stok}/${path}`;
 
-    if (requireAuth && this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
-    }
+    this.log.debug(`API request - URL: ${url}`);
 
-    const body = JSON.stringify(params);
+    return new Promise((resolve, reject) => {
+      const urlObj = new URL(url);
 
-    try {
-      const response = await fetch(url, {
+      const options = {
+        hostname: urlObj.hostname,
+        port: urlObj.port || 443,
+        path: urlObj.pathname + urlObj.search,
         method: 'POST',
-        headers,
-        body,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        rejectUnauthorized: false,
+      };
+
+      const req = https.request(options, (res: IncomingMessage) => {
+        let data = '';
+
+        // Handle redirects
+        if (typeof res.statusCode === 'number' && res.statusCode >= 300 && res.statusCode < 400) {
+          const location = res.headers.location;
+          this.log.error(`API returned redirect (${res.statusCode}) to: ${location}`);
+          reject(new Error(`API redirect to ${location} - authentication may have failed`));
+          return;
+        }
+
+        if (typeof res.statusCode !== 'number' || res.statusCode !== 200) {
+          reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+          return;
+        }
+
+        res.on('data', (chunk: Buffer) => {
+          data += chunk;
+        });
+
+        res.on('end', () => {
+          try {
+            const jsonData = JSON.parse(data);
+            resolve(jsonData);
+          } catch (parseError) {
+            if (data.trim().startsWith('<!DOCTYPE') || data.trim().startsWith('<html')) {
+              this.log.error('API returned HTML instead of JSON. Response preview:', data.substring(0, 300));
+              this.log.error('Router may not be accessible or API endpoint is wrong.');
+            } else {
+              this.log.error('Failed to parse API response as JSON:', data);
+            }
+            reject(new Error('Invalid JSON response from Deco router'));
+          }
+        });
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
+      req.on('error', (error: Error) => {
+        this.log.error('API request failed:', error);
+        reject(error);
+      });
 
-      const text = await response.text();
-      // Try to parse as JSON, but handle HTML error pages gracefully
-      try {
-        const data = JSON.parse(text);
-        return data;
-      } catch (parseError) {
-        if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
-          this.log.error('API returned HTML instead of JSON. This usually means the endpoint is down, credentials are wrong, or the API has changed.');
-        } else {
-          this.log.error('Failed to parse API response as JSON:', text);
-        }
-        throw new Error('Invalid JSON response from TP-Link API');
-      }
-    } catch (error) {
-      this.log.error('API request failed:', error);
-      throw error;
-    }
+      req.write(body);
+      req.end();
+    });
   }
 
   /**
    * Ensure we have a valid authentication token
    */
   private async ensureAuthenticated(): Promise<boolean> {
-    if (!this.token || (Date.now() - this.lastAuthTime) >= this.authValidityMs) {
+    if (!this.stok || (Date.now() - this.lastAuthTime) >= this.authValidityMs) {
       return await this.authenticate();
     }
     return true;
